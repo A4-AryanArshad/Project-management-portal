@@ -11,10 +11,11 @@ export function UpdateStatusForm({ currentStatus, onSubmit, onCancel }: UpdateSt
   const [notes, setNotes] = useState('')
 
   const statusOptions = [
-    { value: 'Pending', label: 'Pending', color: '#64748b' },
-    { value: 'In Progress', label: 'In Progress', color: '#1d4ed8' },
-    { value: 'Review', label: 'Review', color: '#facc15' },
-    { value: 'Completed', label: 'Completed', color: '#1d4ed8' }
+    { value: 'pending', label: 'Pending', color: '#64748b' },
+    { value: 'in_progress', label: 'In Progress', color: '#1d4ed8' },
+    { value: 'review', label: 'Review', color: '#facc15' },
+    { value: 'revision', label: 'Revision', color: '#f97316' },
+    { value: 'completed', label: 'Completed', color: '#22c55e' }
   ]
 
   const handleSubmit = (e: React.FormEvent) => {

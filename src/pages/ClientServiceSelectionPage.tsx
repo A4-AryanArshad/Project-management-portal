@@ -1,39 +1,145 @@
-import { Link } from 'react-router-dom'
-import { useState } from 'react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { api } from '../services/api'
 
 export function ClientServiceSelectionPage() {
+  const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const [selectedService, setSelectedService] = useState<string | null>(null)
+  const [services, setServices] = useState<any[]>([])
+  const [project, setProject] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [showCustomRequest, setShowCustomRequest] = useState(false)
+  const [customRequestData, setCustomRequestData] = useState({
+    description: '',
+    preferred_timeline: '30 days'
+  })
+  const [requestingCustom, setRequestingCustom] = useState(false)
 
-  const services = [
-    {
-      id: '1',
-      name: 'Complete Brand Identity Package',
-      description: 'Full logo design, color palette, typography, and brand guidelines document',
-      price: '$4,500',
-      features: ['Logo design (3 concepts)', 'Color palette & typography', 'Brand guidelines PDF', '3 rounds of revisions']
-    },
-    {
-      id: '2',
-      name: 'Logo Design Only',
-      description: 'Professional logo design with 2 revision rounds',
-      price: '$1,200',
-      features: ['Logo design (2 concepts)', '2 rounds of revisions', 'Final files (AI, PNG, SVG)']
-    },
-    {
-      id: '3',
-      name: 'Brand Guidelines Document',
-      description: 'Complete brand guidelines documentation for existing identity',
-      price: '$2,800',
-      features: ['Comprehensive brand book', 'Usage guidelines', 'Digital & print formats']
+  useEffect(() => {
+    // Check authentication first
+    if (!api.isAuthenticated()) {
+      navigate(`/login?redirect=/client/${projectId}/service`)
+      return
     }
-  ]
 
-  const customQuote = {
-    name: 'Custom Quote - Website Redesign',
-    description: 'Agreed upon scope for full website redesign project',
-    price: '$12,000',
-    status: 'Approved'
+    if (projectId) {
+      loadData()
+    }
+  }, [projectId, navigate])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      const projectRes = await api.getProject(projectId!)
+      
+      if (projectRes.success) {
+        const projectData = projectRes.data
+        setProject(projectData)
+        
+        // For simple projects, show the service with price from the project
+        if (projectData.project_type === 'simple' && projectData.service_price) {
+          // Create a service object from the project data
+          setServices([{
+            _id: projectId,
+            id: projectId,
+            name: projectData.service_name || projectData.name || 'Service',
+            description: `Service for ${projectData.name}`,
+            price: projectData.service_price,
+            delivery_timeline: projectData.delivery_timeline || '30 days'
+          }])
+        } else {
+          // For custom projects or if no service_price, load from services API
+          try {
+            const servicesRes = await api.getServices()
+            if (servicesRes.success) {
+              setServices(servicesRes.data || [])
+            }
+          } catch (err) {
+            console.error('Failed to load services:', err)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load data:', error)
+    } finally {
+      setLoading(false)
+    }
   }
+
+  const handleServiceSelect = async (serviceId: string | null, customAmount?: number) => {
+    if (!projectId) return
+
+    try {
+      setSubmitting(true)
+      
+      // For simple projects with service_price, we don't need to update the backend
+      // The service and price are already set when the project was created
+      if (project?.project_type === 'simple' && project?.service_price) {
+        // Just navigate to briefing page
+        navigate(`/client/${projectId}/briefing`)
+        return
+      }
+      
+      // For custom projects or projects with service selection, update the backend
+      const response: any = await api.updateServiceSelection(projectId, {
+        serviceId: serviceId || undefined,
+        customAmount: customAmount,
+      })
+
+      if (response.success) {
+        navigate(`/client/${projectId}/briefing`)
+      } else {
+        alert('Failed to save selection. Please try again.')
+      }
+    } catch (error: any) {
+      alert(`Error: ${error.message}`)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleCustomRequest = async () => {
+    if (!projectId) return
+
+    try {
+      setRequestingCustom(true)
+      const response: any = await api.requestCustomQuote(projectId, customRequestData)
+
+      if (response.success) {
+        alert('Custom quote request submitted! Admin will review and send you a quote.')
+        // Reload project to see updated status
+        loadData()
+        setShowCustomRequest(false)
+      } else {
+        alert('Failed to submit request. Please try again.')
+      }
+    } catch (error: any) {
+      alert(`Error: ${error.message}`)
+    } finally {
+      setRequestingCustom(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="page">
+        <div style={{ textAlign: 'center', padding: '3rem' }}>
+          <p>Loading services...</p>
+        </div>
+      </section>
+    )
+  }
+
+  const customQuote = project?.custom_quote_amount
+    ? {
+        name: project.name || 'Custom Quote',
+        description: project.custom_quote_description || 'Agreed upon custom quote for this project',
+        price: `$${project.custom_quote_amount.toLocaleString()}`,
+        amount: project.custom_quote_amount,
+      }
+    : null
 
   return (
     <section className="page">
@@ -47,161 +153,305 @@ export function ClientServiceSelectionPage() {
 
       <div className="page-body">
         <div className="page-panel" style={{ gridColumn: '1 / -1' }}>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '1.2rem', color: '#0f172a' }}>
+          {customQuote && (
+            <div style={{ marginBottom: '2rem' }}>
+              <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#0f172a' }}>
+                Your Custom Quote
+              </h3>
+              <div
+                style={{
+                  padding: '1.5rem',
+                  background: 'rgba(29, 78, 216, 0.1)',
+                  border: '2px solid #1d4ed8',
+                  borderRadius: '0.8rem',
+                  marginBottom: '1rem'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.8rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ margin: '0 0 0.4rem', fontSize: '1.1rem', color: '#0f172a' }}>
+                      {customQuote.name}
+                    </h4>
+                    
+                    {/* Show client's original request description */}
+                    {project?.custom_quote_request && typeof project.custom_quote_request === 'object' && project.custom_quote_request.description && (
+                      <div style={{ 
+                        marginTop: '0.75rem',
+                        marginBottom: '0.75rem',
+                        padding: '0.75rem',
+                        background: 'rgba(59, 130, 246, 0.1)',
+                        borderRadius: '0.5rem',
+                        border: '1px solid rgba(59, 130, 246, 0.3)'
+                      }}>
+                        <h5 style={{ 
+                          margin: '0 0 0.4rem', 
+                          fontSize: '0.85rem', 
+                          color: '#1e40af',
+                          fontWeight: '600'
+                        }}>
+                          Your Request:
+                        </h5>
+                        <p style={{ 
+                          margin: 0, 
+                          fontSize: '0.85rem', 
+                          color: '#4b5563', 
+                          lineHeight: '1.6', 
+                          whiteSpace: 'pre-wrap'
+                        }}>
+                          {project.custom_quote_request.description}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Show admin's description if available */}
+                    {customQuote.description && (
+                      <div style={{ 
+                        marginTop: project?.custom_quote_request && typeof project.custom_quote_request === 'object' && project.custom_quote_request.description ? '0.5rem' : '0.5rem',
+                        padding: '0.75rem',
+                        background: 'rgba(255, 255, 255, 0.5)',
+                        borderRadius: '0.5rem',
+                        border: '1px solid rgba(29, 78, 216, 0.2)'
+                      }}>
+                        <h5 style={{ 
+                          margin: '0 0 0.4rem', 
+                          fontSize: '0.85rem', 
+                          color: '#1d4ed8',
+                          fontWeight: '600'
+                        }}>
+                          Quote Details:
+                        </h5>
+                        <p style={{ 
+                          margin: 0, 
+                          fontSize: '0.85rem', 
+                          color: '#4b5563', 
+                          lineHeight: '1.6', 
+                          whiteSpace: 'pre-wrap'
+                        }}>
+                          {customQuote.description}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1d4ed8', marginLeft: '1rem', whiteSpace: 'nowrap' }}>
+                    {customQuote.price}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleServiceSelect(null, customQuote.amount)}
+                  disabled={submitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    background: '#1d4ed8',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '0.6rem',
+                    fontWeight: '500',
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                    opacity: submitting ? 0.6 : 1
+                  }}
+                >
+                  {submitting ? 'Confirming...' : 'Confirm Custom Quote →'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#0f172a' }}>
             Predefined Services
           </h3>
-          
-          <div style={{ display: 'grid', gap: '1rem', marginBottom: '2rem' }}>
+
+          <div style={{ display: 'grid', gap: '1rem' }}>
             {services.map((service) => (
               <div
-                key={service.id}
-                onClick={() => setSelectedService(service.id)}
+                key={service._id || service.id}
                 style={{
-                  padding: '1.4rem',
-                  border: selectedService === service.id 
-                    ? '2px solid #1d4ed8' 
-                    : '1px solid rgba(30, 64, 175, 0.5)',
+                  padding: '1.5rem',
+                  background: selectedService === (service._id || service.id) ? 'rgba(29, 78, 216, 0.1)' : 'white',
+                  border: `2px solid ${selectedService === (service._id || service.id) ? '#1d4ed8' : 'rgba(59, 130, 246, 0.3)'}`,
                   borderRadius: '0.8rem',
-                  background: selectedService === service.id 
-                    ? '#eff6ff' 
-                    : '#111827',
                   cursor: 'pointer',
                   transition: 'all 0.2s'
                 }}
+                onClick={() => setSelectedService(service._id || service.id)}
+                onMouseEnter={(e) => {
+                  if (selectedService !== (service._id || service.id)) {
+                    e.currentTarget.style.borderColor = '#1d4ed8'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selectedService !== (service._id || service.id)) {
+                    e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)'
+                  }
+                }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.6rem' }}>
-                  <div>
-                    <h4 style={{ 
-                      margin: 0, 
-                      fontSize: '1rem', 
-                      color: selectedService === service.id ? '#0f172a' : '#f9fafb', 
-                      marginBottom: '0.3rem' 
-                    }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.8rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ margin: '0 0 0.4rem', fontSize: '1.1rem', color: '#0f172a' }}>
                       {service.name}
                     </h4>
-                    <p style={{ 
-                      margin: 0, 
-                      fontSize: '0.85rem', 
-                      color: selectedService === service.id ? '#4b5563' : '#e5e7eb' 
-                    }}>
+                    <p style={{ margin: 0, fontSize: '0.9rem', color: '#4b5563', lineHeight: '1.5' }}>
                       {service.description}
                     </p>
                   </div>
-                  <div style={{ 
-                    fontSize: '1.3rem', 
-                    fontWeight: '600', 
-                    color: '#1d4ed8',
-                    whiteSpace: 'nowrap',
-                    marginLeft: '1rem'
-                  }}>
-                    {service.price}
+                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1d4ed8', marginLeft: '1rem', whiteSpace: 'nowrap' }}>
+                    ${service.price?.toLocaleString() || '0'}
                   </div>
                 </div>
-                <ul style={{ 
-                  margin: '0.8rem 0 0', 
-                  paddingLeft: '1.2rem', 
-                  fontSize: '0.85rem',
-                  color: selectedService === service.id ? '#4b5563' : '#e5e7eb'
-                }}>
-                  {service.features.map((feature, idx) => (
-                    <li key={idx} style={{ marginBottom: '0.3rem' }}>{feature}</li>
-                  ))}
-                </ul>
+
+                {service.features && service.features.length > 0 && (
+                  <ul style={{ margin: '0.8rem 0 0', paddingLeft: '1.2rem', fontSize: '0.85rem', color: '#4b5563' }}>
+                    {service.features.map((feature: string, idx: number) => (
+                      <li key={idx} style={{ marginBottom: '0.3rem' }}>{feature}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>
 
-          <div style={{
-            padding: '1.4rem',
-            border: selectedService === 'custom' 
-              ? '2px solid #f59e0b' 
-              : '2px solid rgba(250, 204, 21, 0.5)',
-            borderRadius: '0.8rem',
-            background: selectedService === 'custom' 
-              ? '#fef3c7' 
-              : '#fffbeb',
-            marginBottom: '1.5rem',
-            transition: 'all 0.2s'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.6rem' }}>
-              <div>
-                <div style={{ 
-                  display: 'inline-block',
-                  padding: '0.2rem 0.5rem',
-                  background: 'rgba(251, 191, 36, 0.18)',
-                  borderRadius: '4px',
-                  fontSize: '0.7rem',
-                  color: '#b45309',
-                  marginBottom: '0.4rem'
+          {/* Custom Service Request Option */}
+          {project?.project_type === 'custom' && !customQuote && (
+            <div style={{ marginTop: '2rem', marginBottom: '2rem' }}>
+              <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#0f172a' }}>
+                Custom Service Request
+              </h3>
+              {!showCustomRequest ? (
+                <div style={{
+                  padding: '1.5rem',
+                  background: 'rgba(59, 130, 246, 0.1)',
+                  border: '2px solid #3b82f6',
+                  borderRadius: '0.8rem',
+                  textAlign: 'center'
                 }}>
-                  CUSTOM QUOTE
+                  <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: '#4b5563' }}>
+                    Need something custom? Request a custom quote and we'll get back to you with pricing and timeline.
+                  </p>
+                  <button
+                    onClick={() => setShowCustomRequest(true)}
+                    style={{
+                      padding: '0.75rem 1.5rem',
+                      background: '#3b82f6',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '0.6rem',
+                      fontWeight: '500',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Request Custom Quote
+                  </button>
                 </div>
-                <h4 style={{ margin: 0, fontSize: '1rem', color: '#0f172a', marginBottom: '0.3rem' }}>
-                  {customQuote.name}
-                </h4>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: '#4b5563' }}>
-                  {customQuote.description}
-                </p>
-              </div>
-              <div style={{ 
-                fontSize: '1.3rem', 
-                fontWeight: '600', 
-                color: '#f59e0b',
-                whiteSpace: 'nowrap',
-                marginLeft: '1rem'
-              }}>
-                {customQuote.price}
-              </div>
+              ) : (
+                <div style={{
+                  padding: '1.5rem',
+                  background: 'white',
+                  border: '2px solid #3b82f6',
+                  borderRadius: '0.8rem'
+                }}>
+                  <h4 style={{ marginBottom: '1rem', fontSize: '1rem', color: '#0f172a' }}>
+                    Tell us about your project
+                  </h4>
+                  <textarea
+                    value={customRequestData.description}
+                    onChange={(e) => setCustomRequestData({ ...customRequestData, description: e.target.value })}
+                    placeholder="Describe your project requirements, timeline, and any specific needs..."
+                    rows={5}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      border: '1px solid rgba(30, 64, 175, 0.3)',
+                      borderRadius: '0.6rem',
+                      fontSize: '0.9rem',
+                      marginBottom: '1rem',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#0f172a' }}>
+                      Preferred Timeline (default: 30 days)
+                    </label>
+                    <input
+                      type="text"
+                      value={customRequestData.preferred_timeline}
+                      onChange={(e) => setCustomRequestData({ ...customRequestData, preferred_timeline: e.target.value })}
+                      placeholder="e.g., 30 days, 2 weeks, 1 month"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        border: '1px solid rgba(30, 64, 175, 0.3)',
+                        borderRadius: '0.6rem',
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      onClick={handleCustomRequest}
+                      disabled={requestingCustom || !customRequestData.description.trim()}
+                      style={{
+                        flex: 1,
+                        padding: '0.75rem',
+                        background: requestingCustom || !customRequestData.description.trim() ? 'rgba(59, 130, 246, 0.5)' : '#3b82f6',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '0.6rem',
+                        fontWeight: '500',
+                        cursor: requestingCustom || !customRequestData.description.trim() ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      {requestingCustom ? 'Submitting...' : 'Submit Request'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowCustomRequest(false)
+                        setCustomRequestData({ description: '', preferred_timeline: '30 days' })
+                      }}
+                      style={{
+                        padding: '0.75rem 1rem',
+                        background: 'transparent',
+                        color: '#4b5563',
+                        border: '1px solid rgba(148, 163, 184, 0.4)',
+                        borderRadius: '0.6rem',
+                        fontWeight: '500',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => setSelectedService('custom')}
-              style={{
-                padding: '0.5rem 1rem',
-                background: selectedService === 'custom' ? '#f59e0b' : 'transparent',
-                color: selectedService === 'custom' ? '#020617' : '#b45309',
-                border: '1px solid #f59e0b',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                fontWeight: '500'
-              }}
-            >
-              {selectedService === 'custom' ? '✓ Selected' : 'Select Custom Quote'}
-            </button>
-          </div>
+          )}
 
-          <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-            <Link 
-              to="/client/project" 
-              style={{
-                padding: '0.75rem 1.5rem',
-                background: 'transparent',
-                color: '#4b5563',
-                border: '1px solid rgba(148, 163, 184, 0.4)',
-                borderRadius: '999px',
-                textDecoration: 'none',
-                fontSize: '0.9rem'
-              }}
-            >
-              ← Back
-            </Link>
-            <Link 
-              to="/client/briefing" 
-              style={{
-                padding: '0.75rem 1.8rem',
-                background: selectedService ? '#1d4ed8' : 'rgba(29, 78, 216, 0.3)',
-                color: selectedService ? '#ffffff' : '#64748b',
-                borderRadius: '999px',
-                textDecoration: 'none',
-                fontWeight: '500',
-                fontSize: '0.9rem',
-                pointerEvents: selectedService ? 'auto' : 'none',
-                cursor: selectedService ? 'pointer' : 'not-allowed'
-              }}
-            >
-              Continue to Briefing →
-            </Link>
-          </div>
+          {services.length === 0 && !customQuote && project?.project_type !== 'custom' && (
+            <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+              <p>No services available at the moment.</p>
+            </div>
+          )}
+
+          {selectedService && services.length > 0 && (
+            <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+              <button
+                onClick={() => handleServiceSelect(selectedService)}
+                disabled={submitting}
+                style={{
+                  padding: '0.75rem 2rem',
+                  background: '#1d4ed8',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '999px',
+                  fontWeight: '500',
+                  fontSize: '0.9rem',
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  opacity: submitting ? 0.6 : 1
+                }}
+              >
+                {submitting ? 'Confirming...' : 'Continue with Selected Service →'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </section>

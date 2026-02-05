@@ -1,51 +1,60 @@
-import { BrowserRouter, Link, Route, Routes, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Link, Route, Routes, useNavigate, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import './App.css'
 import { ClientProjectPage } from './pages/ClientProjectPage'
 import { ClientServiceSelectionPage } from './pages/ClientServiceSelectionPage'
 import { ClientBriefingPage } from './pages/ClientBriefingPage'
 import { ClientPaymentPage } from './pages/ClientPaymentPage'
 import { ClientDashboardPage } from './pages/ClientDashboardPage'
+import { ClientAccessPage } from './pages/ClientAccessPage'
+import { PaymentSuccessPage } from './pages/PaymentSuccessPage'
+import { ClientAllProjectsPage } from './pages/ClientAllProjectsPage'
+import { SignupPage } from './pages/SignupPage'
+import { LoginPage } from './pages/LoginPage'
 import { AdminProjectsPage } from './pages/AdminProjectsPage'
 import { AdminProjectDetailPage } from './pages/AdminProjectDetailPage'
+import { AdminCollaboratorsPage } from './pages/AdminCollaboratorsPage'
+import { AdminCustomQuotesPage } from './pages/AdminCustomQuotesPage'
 import { CollaboratorProjectsPage } from './pages/CollaboratorProjectsPage'
 import { CollaboratorProjectDetailPage } from './pages/CollaboratorProjectDetailPage'
+import { StripeConnectReturnPage } from './pages/StripeConnectReturnPage'
+import { StripeConnectRefreshPage } from './pages/StripeConnectRefreshPage'
+import { getUserRole, clearUserData } from './utils/auth'
+import { api } from './services/api'
+import { ProtectedRoute } from './components/ProtectedRoute'
 
 function HomePage() {
   const navigate = useNavigate()
 
   return (
     <div className="home">
-      {/* Hero */}
+      {/* Hero with only admin/collaborator login options */}
       <section className="home-hero">
         <div className="home-hero-left">
-          <p className="home-availability">Instant pricing, clear briefs, zero chaos.</p>
+          <p className="home-availability">Welcome to your project portal.</p>
           <h1 className="home-title">
-            Your <span className="home-title-highlight">design project link</span> that
-            turns enquiries into paying clients.
+            Choose how you want to <span className="home-title-highlight">log in</span>.
           </h1>
-          <p className="home-subtitle">
-            Share one simple link that walks clients through services, collects a guided
-            brief, takes payment, and keeps everyone aligned automatically.
-          </p>
+          <p className="home-subtitle">Please select whether you are an admin or a collaborator.</p>
 
           <div className="home-cta-row">
             <button
               className="home-cta-primary"
-              onClick={() => navigate('/client/service')}
+              onClick={() => navigate('/login?redirect=/admin/projects')}
             >
-              Get your share link
+              Login as Admin
             </button>
             <button
               className="home-cta-ghost"
-              onClick={() => navigate('/admin/projects')}
+              onClick={() => navigate('/login?redirect=/collaborator/projects')}
             >
-              Open project workspace
+              Login as Collaborator
             </button>
           </div>
 
           <div className="home-meta">
             <span className="home-meta-dot" />
-            <span>Built for design teams – admin, client, and collaborator views baked in.</span>
+            <span>Collaborators can log in using the credentials provided by the admin.</span>
           </div>
         </div>
       </section>
@@ -113,13 +122,13 @@ function HomePage() {
           </li>
           <li>
             <span className="home-step-number">4</span>
-            <div>
+      <div>
               <h3 className="home-step-title">You just design</h3>
               <p className="home-step-text">
                 Clients see their status, uploads, and next steps in one dashboard while
                 you focus on the creative work.
               </p>
-            </div>
+      </div>
           </li>
         </ol>
       </section>
@@ -181,64 +190,219 @@ function HomePage() {
 
       {/* Final CTA */}
       <section className="home-final-cta">
-        <h2 className="home-final-title">Chaos made simple.</h2>
+        <h2 className="home-final-title">Log in to manage your work.</h2>
         <p className="home-final-text">
-          Turn inquiries into clients automatically. Your link does the selling while you
-          design.
+          Admins can manage projects and collaborators. Collaborators can see their assigned projects and payments.
         </p>
-        <button
-          className="home-cta-primary home-final-button"
-          onClick={() => navigate('/client/service')}
-        >
-          Get your share link
-        </button>
+        <div className="home-cta-row" style={{ justifyContent: 'center' }}>
+          <button
+            className="home-final-button"
+            onClick={() => navigate('/login?redirect=/admin/projects')}
+          >
+            Login as Admin
+          </button>
+          <button
+            className="home-cta-ghost home-final-button"
+            onClick={() => navigate('/login?redirect=/collaborator/projects')}
+          >
+            Login as Collaborator
+          </button>
+        </div>
       </section>
     </div>
   )
 }
 
+function Navbar() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [userRole, setUserRole] = useState<'client' | 'admin' | 'collaborator' | null>(null)
+
+  useEffect(() => {
+    // Get user role on mount and when storage changes
+    const updateRole = () => {
+      const role = getUserRole()
+      setUserRole(role)
+    }
+    
+    updateRole()
+    
+    // Listen for storage changes (e.g., login/logout in another tab)
+    window.addEventListener('storage', updateRole)
+    
+    // Also check periodically in case token is updated
+    const interval = setInterval(updateRole, 1000)
+    
+    return () => {
+      window.removeEventListener('storage', updateRole)
+      clearInterval(interval)
+    }
+  }, [])
+
+  const handleLogout = () => {
+    api.logout()
+    clearUserData()
+    setUserRole(null)
+    // Redirect based on current location
+    if (location.pathname.startsWith('/admin') || location.pathname.startsWith('/collaborator')) {
+      navigate('/')
+    } else {
+      navigate('/client/all')
+    }
+  }
+
+  return (
+    <header className="app-header">
+      <div className="app-brand">
+        <img
+          src="/logo.jpeg"
+          alt="Kanri logo"
+          className="app-logo"
+        />
+      </div>
+          <nav className="app-nav">
+        {/* Show links based on role */}
+        {!userRole && (
+          <>
+            {/* No links when not logged in – use home page buttons to log in */}
+          </>
+        )}
+        {userRole === 'admin' && (
+          <Link className="pill pill-admin" to="/admin/projects">
+            Admin
+          </Link>
+        )}
+        {userRole === 'collaborator' && (
+          <Link className="pill pill-collab" to="/collaborator/projects">
+            Collaborator
+          </Link>
+        )}
+        {/* Logout button for authenticated users */}
+        {userRole && (
+          <button
+            onClick={handleLogout}
+            style={{
+              padding: '0.5rem 1rem',
+              background: 'transparent',
+              color: '#64748b',
+              border: '1px solid rgba(148, 163, 184, 0.3)',
+              borderRadius: '999px',
+              fontSize: '0.85rem',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              marginLeft: '0.5rem'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)'
+              e.currentTarget.style.color = '#ef4444'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.3)'
+              e.currentTarget.style.color = '#64748b'
+            }}
+          >
+            Logout
+          </button>
+        )}
+      </nav>
+    </header>
+  )
+}
+
 function App() {
+
   return (
     <BrowserRouter>
       <div className="app-shell">
-        <header className="app-header">
-          <div className="app-brand">
-            <span className="app-logo-dot" />
-            <span className="app-title">Client Project Portal</span>
-          </div>
-          <nav className="app-nav">
-            <Link className="pill pill-admin" to="/admin/projects">
-              Admin
-            </Link>
-            <Link className="pill pill-collab" to="/collaborator/projects">
-              Collaborator
-            </Link>
-            <Link className="pill pill-client" to="/client/project">
-              Client
-            </Link>
-          </nav>
-        </header>
+        <Navbar />
 
         <main className="app-main">
           <Routes>
             <Route path="/" element={<HomePage />} />
 
+            {/* Auth routes */}
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/login" element={<LoginPage />} />
+
             {/* Client routes */}
-            <Route path="/client/project" element={<ClientProjectPage />} />
-            <Route path="/client/service" element={<ClientServiceSelectionPage />} />
-            <Route path="/client/briefing" element={<ClientBriefingPage />} />
-            <Route path="/client/payment" element={<ClientPaymentPage />} />
-            <Route path="/client/dashboard" element={<ClientDashboardPage />} />
+            <Route path="/client/access" element={<ClientAccessPage />} />
+            <Route path="/client/all" element={<ClientAllProjectsPage />} />
+            <Route path="/client/:projectId" element={<ClientProjectPage />} />
+            <Route path="/client/:projectId/service" element={<ClientServiceSelectionPage />} />
+            <Route path="/client/:projectId/briefing" element={<ClientBriefingPage />} />
+            <Route path="/client/:projectId/payment" element={<ClientPaymentPage />} />
+            <Route path="/client/:projectId/payment/success" element={<PaymentSuccessPage />} />
+            <Route path="/client/:projectId/dashboard" element={<ClientDashboardPage />} />
 
-            {/* Admin routes */}
-            <Route path="/admin/projects" element={<AdminProjectsPage />} />
-            <Route path="/admin/projects/:projectId" element={<AdminProjectDetailPage />} />
+            {/* Admin routes - require admin role */}
+            <Route
+              path="/admin/projects"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminProjectsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/projects/:projectId"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminProjectDetailPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/custom-quotes"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminCustomQuotesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/collaborators"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminCollaboratorsPage />
+                </ProtectedRoute>
+              }
+            />
 
-            {/* Collaborator routes */}
-            <Route path="/collaborator/projects" element={<CollaboratorProjectsPage />} />
+            {/* Collaborator routes - require collaborator role */}
+            <Route
+              path="/collaborator/projects"
+              element={
+                <ProtectedRoute allowedRoles={['collaborator']}>
+                  <CollaboratorProjectsPage />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/collaborator/projects/:projectId"
-              element={<CollaboratorProjectDetailPage />}
+              element={
+                <ProtectedRoute allowedRoles={['collaborator']}>
+                  <CollaboratorProjectDetailPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/collaborator/stripe/return"
+              element={
+                <ProtectedRoute allowedRoles={['collaborator']}>
+                  <StripeConnectReturnPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/collaborator/stripe/refresh"
+              element={
+                <ProtectedRoute allowedRoles={['collaborator']}>
+                  <StripeConnectRefreshPage />
+                </ProtectedRoute>
+              }
             />
           </Routes>
         </main>
